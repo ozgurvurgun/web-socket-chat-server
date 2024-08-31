@@ -74,8 +74,6 @@ class WebSocketServer
 
     private function processClientMessages(array $changed)
     {
-        // $exitFlag = false;
-
         foreach ($changed as $changed_socket) {
             if ($changed_socket == $this->socket) continue; // Skip server socket
 
@@ -84,7 +82,6 @@ class WebSocketServer
 
             if ($bytes === false || $bytes === 0) {
                 $this->handleDisconnection($changed_socket);
-                // $exitFlag = true;
                 continue;
             }
 
@@ -108,11 +105,6 @@ class WebSocketServer
                 echo "Error: Invalid message format\n";
             }
         }
-
-        // If the exit flag was set, exit the outer loop
-        // if ($exitFlag) {
-        //     return;
-        // }
     }
 
     private function performHandshake(string $header, Socket $client_socket): void
