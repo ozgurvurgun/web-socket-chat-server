@@ -14,9 +14,7 @@ This project provides a simple WebSocket server implementation using PHP. This R
 
 ### Steps
 
-1. **Clone the Repository**
-
-   ```bash
+1. ```bash
    git clone https://github.com/ozgurvurgun/web-socket-chat-server.git
 
 2. ```bash
