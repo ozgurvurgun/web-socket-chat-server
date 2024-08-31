@@ -18,8 +18,11 @@ This project provides a simple WebSocket server implementation using PHP. This R
    git clone https://github.com/ozgurvurgun/web-socket-chat-server.git
 
 2. ```bash
-    composer install
+    cd web-socket-chat-server
+
 3. ```bash
+    composer install
+4. ```bash
     php bin/start-server.php
 
 ## Example
