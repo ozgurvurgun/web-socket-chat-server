@@ -1,20 +1,22 @@
 <?php
 
 namespace CompartSoftware\WebsocketServer;
+
+use Exception;
 use Socket;
 
 class WebSocketServer
 {
-    private $host = '0.0.0.0';
-    private $port = 8080;
-    private $socket;
-    private $clients = [];
-    private $maxBufferSize = 65535;
+    private string $host;
+    private int $port;
+    private Socket $socket;
+    private array $clients = [];
+    private int $maxBufferSize = 65535;
 
-    public function __construct($host = null, $port = null)
+    public function __construct(string $host = '0.0.0.0', int $port = 8080)
     {
-        if ($host) $this->host = $host;
-        if ($port) $this->port = $port;
+        $this->host = $host;
+        $this->port = $port;
     }
 
     public function start(): void
@@ -22,87 +24,114 @@ class WebSocketServer
         $this->createSocket();
         $this->bindSocket();
         $this->listenSocket();
-
-        echo "WebSocket server started on $this->host:$this->port\n";
+        $this->log("WebSocket server started on $this->host:$this->port");
 
         while (true) {
-            $changed = $this->clients;
-            $null = NULL;
-            socket_select($changed, $null, $null, 0, 10);
+            $read_sockets = $this->clients;
+            $write_sockets = null;
+            $except_sockets = null;
 
-            if (in_array($this->socket, $changed)) {
+            // Select sockets with a timeout of 10 seconds
+            if (socket_select($read_sockets, $write_sockets, $except_sockets, 10) === false) {
+                $this->logError("socket_select() failed: " . socket_strerror(socket_last_error()));
+                continue;
+            }
+
+            if (in_array($this->socket, $read_sockets)) {
                 $this->handleNewConnection();
             }
 
-            $this->processClientMessages($changed);
+            $this->processClientMessages($read_sockets);
         }
-
-        socket_close($this->socket);
     }
 
     private function createSocket(): void
     {
         $this->socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+        if ($this->socket === false) {
+            throw new Exception("Unable to create socket: " . socket_strerror(socket_last_error()));
+        }
         socket_set_option($this->socket, SOL_SOCKET, SO_REUSEADDR, 1);
         $this->clients[] = $this->socket;
     }
 
     private function bindSocket(): void
     {
-        socket_bind($this->socket, $this->host, $this->port);
+        if (socket_bind($this->socket, $this->host, $this->port) === false) {
+            throw new Exception("Unable to bind socket: " . socket_strerror(socket_last_error($this->socket)));
+        }
     }
 
     private function listenSocket(): void
     {
-        socket_listen($this->socket);
+        if (socket_listen($this->socket) === false) {
+            throw new Exception("Unable to listen on socket: " . socket_strerror(socket_last_error($this->socket)));
+        }
     }
 
-    private function handleNewConnection():void
+    private function handleNewConnection(): void
     {
         $new_socket = socket_accept($this->socket);
+        if ($new_socket === false) {
+            $this->logError("Unable to accept new connection: " . socket_strerror(socket_last_error($this->socket)));
+            return;
+        }
+
         $this->clients[] = $new_socket;
 
         $header = socket_read($new_socket, 1024);
+        if ($header === false) {
+            $this->logError("Failed to read handshake header.");
+            return;
+        }
+
         $this->performHandshake($header, $new_socket);
 
         socket_getpeername($new_socket, $ip);
-        echo "New connection from $ip\n";
+        $this->log("New connection from $ip");
 
-        $response = $this->mask(json_encode(['type' => 'system', 'message' => $ip . ' connected']));
+        $response = $this->mask(json_encode(['type' => 'system', 'message' => "$ip connected"]));
         $this->sendMessage($response);
     }
 
-    private function processClientMessages(array $changed)
+    private function processClientMessages(array $changed): void
     {
-        foreach ($changed as $changed_socket) {
-            if ($changed_socket == $this->socket) continue; // Skip server socket
+        foreach ($changed as $socket) {
+            if ($socket === $this->socket) continue;
 
             $buf = '';
-            $bytes = @socket_recv($changed_socket, $buf, 1024, 0);
+            $bytes = @socket_recv($socket, $buf, $this->maxBufferSize, 0);
 
             if ($bytes === false || $bytes === 0) {
-                $this->handleDisconnection($changed_socket);
+                $this->handleDisconnection($socket);
                 continue;
             }
 
             if (strlen($buf) > $this->maxBufferSize) {
                 $error_message = json_encode(["error" => "Message size exceeds buffer limit of $this->maxBufferSize bytes."]);
-                socket_write($changed_socket, $this->mask($error_message), strlen($this->mask($error_message)));
-                echo "Error: Message size exceeds buffer limit\n";
+                socket_write($socket, $this->mask($error_message), strlen($this->mask($error_message)));
+                $this->log("Error: Message size exceeds buffer limit");
                 continue;
             }
 
             $received_text = $this->unmask($buf);
             $message = json_decode($received_text, true);
 
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $error_response = json_encode(['error' => 'Invalid JSON format']);
+                socket_write($socket, $this->mask($error_response), strlen($this->mask($error_response)));
+                $this->log("Error: Invalid JSON format");
+                continue;
+            }
+
             if (isset($message['name']) && isset($message['message'])) {
-                $response_text = $this->mask(json_encode(['type' => 'usermsg', 'name' => $message['name'], 'message' => $message['message']]));
+                $response_text = $this->mask(json_encode(['type' => 'usermsg', 'name' => htmlspecialchars($message['name']), 'message' => htmlspecialchars($message['message'])]));
                 $this->sendMessage($response_text);
-                echo "Message from {$message['name']}: {$message['message']}\n";
+                $this->log("Message from {$message['name']}: {$message['message']}");
             } else {
                 $error_response = json_encode(['error' => 'Invalid message format']);
-                socket_write($changed_socket, $this->mask($error_response), strlen($this->mask($error_response)));
-                echo "Error: Invalid message format\n";
+                socket_write($socket, $this->mask($error_response), strlen($this->mask($error_response)));
+                $this->log("Error: Invalid message format");
             }
         }
     }
@@ -112,10 +141,14 @@ class WebSocketServer
         $headers = [];
         $lines = preg_split("/\r\n/", $header);
         foreach ($lines as $line) {
-            $line = chop($line);
+            $line = trim($line);
             if (preg_match('/\A(\S+): (.*)\z/', $line, $matches)) {
                 $headers[$matches[1]] = $matches[2];
             }
+        }
+
+        if (!isset($headers['Sec-WebSocket-Key'])) {
+            throw new Exception("Missing Sec-WebSocket-Key header.");
         }
 
         $sec_websocket_key = $headers['Sec-WebSocket-Key'];
@@ -125,7 +158,7 @@ class WebSocketServer
             "Connection: Upgrade\r\n" .
             "Sec-WebSocket-Accept: $sec_websocket_accept\r\n\r\n";
         socket_write($client_socket, $handshake_response, strlen($handshake_response));
-        echo "Handshake completed with client\n";
+        $this->log("Handshake completed with client");
     }
 
     private function unmask(string $text): string
@@ -157,10 +190,8 @@ class WebSocketServer
             $header = pack('CC', $b1, $length);
         } elseif ($length > 125 && $length < 65536) {
             $header = pack('CCn', $b1, 126, $length);
-        } elseif ($length >= 65536) {
-            $header = pack('CCNN', $b1, 127, $length);
         } else {
-            return json_encode(['error' => 'Message length exceeds the maximum allowed limit']);
+            $header = pack('CCNN', $b1, 127, $length);
         }
 
         return $header . $text;
@@ -169,21 +200,34 @@ class WebSocketServer
     private function sendMessage(string $msg): void
     {
         foreach ($this->clients as $client) {
-            @socket_write($client, $msg, strlen($msg));
+            if ($client !== $this->socket) { // Skip the server socket
+                @socket_write($client, $msg, strlen($msg));
+            }
         }
     }
 
     private function handleDisconnection(Socket $socket): void
     {
         socket_getpeername($socket, $ip);
-        $response = $this->mask(json_encode(['type' => 'system', 'message' => $ip . ' disconnected']));
+        $response = $this->mask(json_encode(['type' => 'system', 'message' => "$ip disconnected"]));
         $this->sendMessage($response);
 
-        $found_socket = array_search($socket, $this->clients);
+        $found_socket = array_search($socket, $this->clients, true);
         if ($found_socket !== false) {
             unset($this->clients[$found_socket]);
             socket_close($socket);
-            echo "Client disconnected: $ip\n";
+            $this->log("Client disconnected: $ip");
         }
+    }
+
+    private function log(string $message): void
+    {
+        echo "$message\n";
+        flush();
+    }
+
+    private function logError(string $message): void
+    {
+        error_log($message);
     }
 }
