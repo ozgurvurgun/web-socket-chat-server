@@ -1,0 +1,21 @@
+{
+  "name": "compart-software/websocket-server",
+  "description": "A simple WebSocket server implementation in PHP.",
+  "type": "library",
+  "license": "MIT",
+  "autoload": {
+    "psr-4": {
+      "CompartSoftware\\WebsocketServer\\": "src/"
+    }
+  },
+  "authors": [
+    {
+      "name": "Özgür Vurgun"
+    }
+  ],
+  "minimum-stability": "stable",
+  "require": {
+    "php": "^7.4 || ^8.0",
+    "ext-sockets": "*"
+  }
+}

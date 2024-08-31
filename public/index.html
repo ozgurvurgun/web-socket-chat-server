@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebSocket Chat</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f0f0f0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+      }
+      #chat-container {
+        width: 400px;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+        background-color: #fff;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      #chat {
+        padding: 10px;
+        height: 400px;
+        overflow-y: scroll;
+        border-bottom: 1px solid #ccc;
+        display: flex;
+        flex-direction: column;
+      }
+      #input-container {
+        display: flex;
+        padding: 10px;
+      }
+      #name {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        margin-right: 10px;
+      }
+      #message {
+        flex: 2;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        margin-right: 10px;
+      }
+      #send {
+        padding: 10px 20px;
+        border: none;
+        background-color: #4caf50;
+        color: white;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      .message {
+        margin: 5px 0;
+        padding: 10px;
+        border-radius: 10px;
+        max-width: 70%;
+      }
+      .sent {
+        background-color: #dcf8c6;
+        align-self: flex-end;
+      }
+      .received {
+        background-color: #f1f0f0;
+        align-self: flex-start;
+      }
+      .system-message {
+        font-style: italic;
+        color: #888;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="chat-container">
+      <div id="chat"></div>
+      <div id="input-container">
+        <input type="text" id="name" placeholder="Your name" />
+        <input type="text" id="message" placeholder="Your message" />
+        <button id="send">Send</button>
+      </div>
+    </div>
+
+    <script>
+      const ws = new WebSocket("ws://192.168.1.191:8080");
+      const chat = document.getElementById("chat");
+      const nameInput = document.getElementById("name");
+      const messageInput = document.getElementById("message");
+      const sendButton = document.getElementById("send");
+
+      ws.onopen = () => {
+        chat.innerHTML +=
+          '<div class="system-message">Connected to the server</div>';
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const name = nameInput.value;
+        if (msg.type === "usermsg") {
+          const messageClass = msg.name === name ? "sent" : "received";
+          chat.innerHTML += `<div class="message ${messageClass}"><strong>${msg.name}:</strong> ${msg.message}</div>`;
+        } else if (msg.type === "system") {
+          chat.innerHTML += `<div class="system-message"><em>${msg.message}</em></div>`;
+        }
+        chat.scrollTop = chat.scrollHeight;
+      };
+
+      ws.onclose = () => {
+        chat.innerHTML +=
+          '<div class="system-message">Disconnected from the server</div>';
+      };
+
+      sendButton.onclick = () => {
+        const name = nameInput.value;
+        const message = messageInput.value;
+        if (name && message) {
+          const msg = { name, message };
+          ws.send(JSON.stringify(msg));
+          messageInput.value = "";
+        }
+      };
+    </script>
+  </body>
+</html>
