@@ -187,7 +187,3 @@ class WebSocketServer
         }
     }
 }
-
-// Usage
-$server = new WebSocketServer();
-$server->start();
